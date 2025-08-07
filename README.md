@@ -1,106 +1,173 @@
-Of course. I will add a new section for the author and include the link you provided.
-Here is the updated README.md content:
-# MongoDB Backup to Cloudflare R2
-
-This project automates the process of backing up a MongoDB database every 12 hours using a shell script. It compresses the backup, uploads it to a Cloudflare R2 bucket using AWS CLI, and logs each operation.
+Here is the full content of your **Automated MongoDB Backup to Cloudflare R2** documentation in `.docx` format, provided as plain text so you can copy and paste it directly into Microsoft Word:
 
 ---
 
-## 📁 Project Structure
+## **Automated MongoDB Backup to Cloudflare R2**
 
+### **Project Overview**
 
-/mongo-backups/
-│
-├── backup-mongo.sh       # Shell script to dump, compress, upload, and log
-├── backup.log            # Log file to record backup status
-├── dump-.tar.gz         # Compressed MongoDB dumps (generated automatically)
-├── dump- (dir)          # Raw dumped data before compression
+This project sets up an automated backup system for MongoDB using a Bash script and `cron`, with backups securely uploaded to **Cloudflare R2** via the **AWS CLI**.
 
 ---
 
-## 🔧 Prerequisites
+### **1. Prerequisites**
 
-* MongoDB installed
-* AWS CLI configured for Cloudflare R2 with a named profile (e.g., `r2`)
-* A Linux environment (e.g., EC2 instance)
+* MongoDB installed and running
+* Cloudflare R2 bucket created (e.g., `mongo-backups`)
+* AWS CLI configured for R2 with a profile (`r2`)
+* `tar`, `cron`, and `bash` available on the Linux system
 
 ---
 
-## 💡 Steps
+### **2. AWS CLI Setup for R2**
 
-### 1. Set up the Cloudflare R2 Bucket
+```bash
+aws configure --profile r2
+```
 
-* Create a bucket named **`mongo-backups`** in Cloudflare R2.
-* Note your **`ACCOUNT_ID`**.
-* Configure AWS CLI with a profile for R2 by adding the following to your `~/.aws/config` file.
+When prompted, provide:
+
+* Access Key ID
+* Secret Access Key
+* Region (e.g., `auto`)
+* Output format (e.g., `json`)
+
+Edit or create `~/.aws/config`:
 
 ```ini
 [profile r2]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
 region = auto
-endpoint_url = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+s3 =
+  endpoint_url = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+```
 
-2. Create the Backup Script
-Save this script as ~/backup-mongo.sh:
+Replace `<ACCOUNT_ID>` with your actual R2 account ID.
+
+---
+
+### **3. Bash Script: `backup-mongo.sh`**
+
+This script performs the following:
+
+* Dumps MongoDB database using `mongodump`
+* Compresses the dump into a `.tar.gz` file
+* Uploads the archive to R2 using `aws s3 cp`
+* Logs the backup activity to `backup.log`
+
+```bash
 #!/bin/bash
 
+# Variables
+BACKUP_DIR=~/mongo-backups
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-BACKUP_DIR="$HOME/mongo-backups"
-DUMP_DIR="$BACKUP_DIR/dump-$TIMESTAMP"
-ARCHIVE="$BACKUP_DIR/dump-$TIMESTAMP.tar.gz"
-LOGFILE="$HOME/backup.log"
+DUMP_NAME=dump-$TIMESTAMP
+ARCHIVE_NAME=$DUMP_NAME.tar.gz
+LOG_FILE=~/mongo-backups/backup.log
 
-# Create a directory to store the dumps
-mkdir -p "$DUMP_DIR"
+# Create backup directory
+mkdir -p $BACKUP_DIR
 
-# Perform the MongoDB dump
-mongodump --out "$DUMP_DIR"
+# Dump the database
+mongodump --out $BACKUP_DIR/$DUMP_NAME >> $LOG_FILE 2>&1
 
-# Compress the dump directory
-tar -czvf "$ARCHIVE" -C "$BACKUP_DIR" "dump-$TIMESTAMP"
+# Compress the backup
+tar -czvf $BACKUP_DIR/$ARCHIVE_NAME -C $BACKUP_DIR $DUMP_NAME >> $LOG_FILE 2>&1
 
-# Upload the compressed backup to Cloudflare R2
-aws s3 cp "$ARCHIVE" s3://mongo-backups/ \
+# Upload to Cloudflare R2
+aws s3 cp $BACKUP_DIR/$ARCHIVE_NAME s3://mongo-backups/$ARCHIVE_NAME \
   --endpoint-url=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
-  --profile r2
+  --profile r2 >> $LOG_FILE 2>&1
 
-# Log the successful backup
-echo "$(date): Backup $ARCHIVE uploaded to R2" >> "$LOGFILE"
+# Cleanup dump folder
+rm -rf $BACKUP_DIR/$DUMP_NAME
 
-3. Make the Script Executable
+echo "Backup completed at $TIMESTAMP" >> $LOG_FILE
+```
+
+Make it executable:
+
+```bash
 chmod +x ~/backup-mongo.sh
+```
 
-4. Test the Script
+---
+
+### **4. Test the Backup Script**
+
+Run:
+
+```bash
 bash ~/backup-mongo.sh
+```
 
-5. Schedule with Cron
-To run the script automatically, edit your crontab:
-crontab -e
+Check:
 
-Add the following line to run the script every 12 hours:
-0 */12 * * * /home/ubuntu/backup-mongo.sh
+* Backup archive exists in `~/mongo-backups`
+* `backup.log` has timestamped entries
+* Backup is visible in R2:
 
-🧪 Verify Backups
- * Check your local backup folder: ls ~/mongo-backups
- * View the log file: cat ~/backup.log
- * List backups in R2:
-   aws s3 ls s3://mongo-backups/ \
+```bash
+aws s3 ls s3://mongo-backups/ \
   --endpoint-url=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
   --profile r2
+```
 
-✅ Sample Output
-2025-08-06T09:53:20.737+0000 writing admin.system.version...
-upload: ./dump-2025-08-06-09-53.tar.gz to s3://mongo-backups/
-2025-08-06: Backup /home/ubuntu/mongo-backups/dump-2025-08-06-09-53.tar.gz uploaded to R2
+---
 
-📌 Notes
- * You can customize the backup frequency by changing the cron schedule.
- * Ensure that MongoDB is running and accessible by the mongodump tool.
- * Backups are stored both locally and remotely in Cloudflare R2.
-📦 License
-This project is open-source under the MIT License.
-🧑‍💻 Author
- * GeigerJR
- * Project link: https://roadmap.sh/projects/automated-backups
-<!-- end list -->
+### **5. Automate with Cron**
+
+To schedule automatic backups every 12 hours:
+
+```bash
+crontab -e
+```
+
+Add:
+
+```cron
+0 */12 * * * bash ~/backup-mongo.sh
+```
+
+---
+
+### **6. Project Folder Structure**
+
+```bash
+Automated-DB-Backups/
+├── backup-mongo.sh       # Backup script
+├── backup.log            # Backup logs
+└── README.html           # Project documentation (converted to HTML)
+```
+
+---
+
+### **7. GitHub Setup**
+
+```bash
+cd ~
+mkdir Automated-DB-Backups
+mv ~/backup-mongo.sh ./Automated-DB-Backups/
+mv ~/mongo-backups/backup.log ./Automated-DB-Backups/
+mv ~/Automated-DB-Backups.html ./Automated-DB-Backups/README.html
+cd Automated-DB-Backups
+
+git init
+git remote add origin https://github.com/GeigerJR/Automated-DB-Backups.git
+git branch -M main
+git add .
+git commit -m "Initial commit - automated MongoDB backups to R2"
+git push -u origin main
+```
+
+---
+
+### **8. Summary**
+
+✅ MongoDB backup runs every 12 hours
+✅ Archives stored in `mongo-backups` folder
+✅ Archives uploaded to Cloudflare R2
+✅ Logs tracked in `backup.log`
+✅ Project pushed to GitHub
+
+---
+https://roadmap.sh/projects/automated-backups
